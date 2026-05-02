@@ -1,0 +1,274 @@
+ // GO TO GOOGLE CONSOLE AND UPLOAD THIS IF YOU CANT TYPE allow pasting THEN DO IT.
+
+(function() {
+    // --- CLEANUP (Prevents button death on re-paste) ---
+    if (document.querySelector('.bonkers-window')) document.querySelector('.bonkers-window').remove();
+    if (document.querySelector('.bonkers-reopen-btn')) document.querySelector('.bonkers-reopen-btn').remove();
+
+    // --- STATE ---
+    let clickInterval = null;
+    let meteorCooldown = false;
+    let bhCooldown = false;
+    let selectedIcon = [16, 5]; 
+
+    const theme = {
+        bg: 'rgba(10, 12, 18, 0.95)',
+        glass: 'rgba(255, 255, 255, 0.05)',
+        accent: '#00d2ff',
+        upgrade: '#00ffaa',
+        danger: '#ff2e63',
+        achievement: '#f2ff00',
+        border: 'rgba(0, 210, 255, 0.4)'
+    };
+
+    // --- STYLES ---
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = `
+        .bonkers-window { position: fixed; top: 100px; left: 100px; z-index: 100000; background: ${theme.bg}; 
+            border: 1px solid ${theme.border}; border-radius: 12px; backdrop-filter: blur(10px); 
+            box-shadow: 0 20px 50px rgba(0,0,0,0.7); display: flex; flex-direction: column; 
+            width: 340px; height: 500px; min-width: 250px; min-height: 200px; }
+        
+        .bonkers-header { padding: 14px; background: ${theme.glass}; border-bottom: 1px solid ${theme.border}; border-radius: 12px 12px 0 0;
+            cursor: move; font-weight: bold; color: ${theme.accent}; text-align: center; font-family: monospace; user-select: none; flex-shrink: 0; }
+
+        .bonkers-content { padding: 15px; overflow-y: auto; flex-grow: 1; scrollbar-width: thin; display: flex; flex-direction: column; }
+        
+        .b-btn { width: 100%; padding: 10px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.15); 
+            background: ${theme.glass}; color: white; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; flex-shrink: 0; }
+        .b-btn:hover:not(:disabled) { background: rgba(255,255,255,0.15); border-color: ${theme.accent}; }
+        .b-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* FIXED SPRITESHEETS */
+        #icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 4px; max-height: 150px; 
+            overflow-y: auto; background: #000; padding: 10px; border-radius: 8px; border: 1px inset #333; margin: 10px 0; }
+        .icon-slot { width: 36px; height: 36px; position: relative; overflow: hidden; border: 2px solid #222; border-radius: 4px; cursor: pointer; background: #111; }
+        .icon-slot.selected { border-color: ${theme.achievement}; box-shadow: 0 0 10px ${theme.achievement}; }
+        .icon-sprite { width: 48px; height: 48px; position: absolute; top: 0; left: 0; 
+            background-image: url(img/icons.png); background-repeat: no-repeat; 
+            transform: scale(0.75); transform-origin: top left; pointer-events: none; }
+
+        /* METEOR VISUALS */
+        @keyframes meteor-fall { 0% { transform: translate(800px, -800px) scale(0.5) rotate(45deg); opacity: 1; } 100% { transform: translate(0, 0) scale(4); opacity: 1; } }
+        .meteor-entity { position: fixed; z-index: 1000000; pointer-events: none; width: 80px; height: 80px; 
+            background: radial-gradient(circle, #fff 0%, #ffaa00 30%, #ff4500 60%, transparent 80%); border-radius: 50%; box-shadow: 0 0 50px #ff4500; }
+
+        /* BLACK HOLE VISUALS */
+        .bh-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 200000; pointer-events: none; display: flex; align-items: center; justify-content: center; }
+        .bh-entity { position: absolute; width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; }
+        .bh-core { width: 50px; height: 50px; background: #000; border-radius: 50%; box-shadow: 0 0 25px #fff; z-index: 5; }
+        .bh-ring { position: absolute; width: 140px; height: 45px; border: 3px solid rgba(0, 210, 255, 0.7); border-radius: 50%; 
+            box-shadow: 0 0 20px #00d2ff; transform: rotateX(75deg); animation: ring-spin 2s infinite linear; z-index: 4; }
+        @keyframes ring-spin { from { transform: rotateX(75deg) rotateZ(0deg); } to { transform: rotateX(75deg) rotateZ(360deg); } }
+
+        @keyframes bh-L-approach { 0% { transform: translateX(-600px); } 100% { transform: translateX(-45px); } }
+        @keyframes bh-R-approach { 0% { transform: translateX(600px); } 100% { transform: translateX(45px); } }
+        @keyframes bh-final-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(1440deg) scale(0); } }
+
+        .star-explosion { position: fixed; inset: 0; z-index: 200001; pointer-events: none; 
+            background: radial-gradient(circle, #fff, #ff00ff, #00ffff, #ffff00, transparent); 
+            animation: explode-anim 1.5s ease-out forwards; opacity: 0; }
+        @keyframes explode-anim { 0% { opacity: 1; transform: scale(0); } 100% { opacity: 0; transform: scale(25); } }
+
+        .version-tag { text-align: center; font-size: 10px; color: rgba(255,255,255,0.2); margin-top: 10px; font-family: monospace; }
+        .ach-warning { font-size: 9px; color: ${theme.danger}; margin-bottom: 8px; text-align: center; font-weight: bold; opacity: 0.8; }
+
+        /* RESIZERS */
+        .resizer { position: absolute; background: transparent; z-index: 100001; }
+        .resizer.r { top: 0; right: -8px; width: 16px; height: 100%; cursor: e-resize; }
+        .resizer.b { bottom: -8px; left: 0; width: 100%; height: 16px; cursor: s-resize; }
+        .resizer.l { top: 0; left: -8px; width: 16px; height: 100%; cursor: w-resize; }
+        .resizer.t { top: -8px; left: 0; width: 100%; height: 16px; cursor: n-resize; }
+        .resizer.br { bottom: -10px; right: -10px; width: 25px; height: 25px; cursor: se-resize; }
+    `;
+    document.head.appendChild(styleSheet);
+
+    // --- REOPEN BUTTON ---
+    const openBtn = document.createElement('div');
+    openBtn.className = 'bonkers-reopen-btn';
+    openBtn.style = `position: fixed; bottom: 25px; left: 25px; z-index: 99999; background: ${theme.bg}; border: 2px solid ${theme.border}; width: 50px; height: 50px; cursor: pointer; border-radius: 12px; display: none; align-items: center; justify-content: center; color: ${theme.accent}; font-size: 24px; box-shadow: 0 0 15px ${theme.border}; backdrop-filter: blur(5px); font-family: monospace;`;
+    openBtn.innerHTML = "<b>B</b>";
+    document.body.appendChild(openBtn);
+
+    // --- MAIN MENU ---
+    const menu = document.createElement('div');
+    menu.className = 'bonkers-window';
+    menu.innerHTML = `
+        <div class="bonkers-header" id="b-drag">BONKERS SYSTEM</div>
+        <div class="bonkers-content">
+            <button id="btn-autoclick" class="b-btn">AUTO-CLICK: OFF</button>
+            <button id="btn-buyall" class="b-btn" style="color:${theme.upgrade}">BUY ALL UPGRADES & BUILDINGS</button>
+            <button id="btn-meteor" class="b-btn" style="background:#400">METEOROID STRIKE</button>
+            <button id="btn-bh" class="b-btn" style="background:linear-gradient(45deg, #1a0033, #00d2ff); color:white;">BLACK HOLE COLLISION</button>
+            
+            <button id="btn-toggle-ach" class="b-btn" style="background:rgba(242, 255, 0, 0.1); border-color:${theme.achievement}; color:${theme.achievement}; margin-top: 10px;">⚙️ CUSTOM ACHIEVEMENTS</button>
+            
+            <div id="ach-panel" style="display:none; margin-top:10px; padding:10px; background:rgba(0,0,0,0.4); border-radius:8px; border:1px dashed ${theme.border};">
+                <div class="ach-warning">"Achievements with the same name will not be spawned"</div>
+                <input type="text" id="ach-name" placeholder="Achievement Name" style="width:100%; background:#000; border:1px solid #444; color:#fff; padding:6px; border-radius:4px; box-sizing:border-box;">
+                <textarea id="ach-desc" placeholder="Description..." style="width:100%; background:#000; border:1px solid #444; color:#fff; padding:6px; margin-top:5px; border-radius:4px; height:45px; resize:none; box-sizing:border-box;"></textarea>
+                <div id="icon-grid"></div>
+                <button id="btn-grant" class="b-btn" style="background:${theme.achievement}; color:#000; margin-top:5px;">GRANT ACHIEVEMENT</button>
+            </div>
+
+            <div style="flex-grow:1;"></div>
+            <div class="version-tag">VERSION 1.0</div>
+            <button id="btn-close" class="b-btn" style="background:transparent; color:${theme.danger}; border-color:${theme.danger}; margin-top:15px;">CLOSE MENU</button>
+        </div>
+        <div class="resizer r"></div><div class="resizer b"></div><div class="resizer t"></div><div class="resizer l"></div><div class="resizer br"></div>
+    `;
+    document.body.appendChild(menu);
+
+    // --- BUTTON LOGIC ---
+
+    document.getElementById('btn-autoclick').onclick = function() {
+        if (!clickInterval) {
+            clickInterval = setInterval(() => Game.ClickCookie(), 50);
+            this.innerText = "AUTO-CLICK: ON";
+            this.style.color = theme.accent;
+        } else {
+            clearInterval(clickInterval);
+            clickInterval = null;
+            this.innerText = "AUTO-CLICK: OFF";
+            this.style.color = "#fff";
+        }
+    };
+
+    document.getElementById('btn-buyall').onclick = function() {
+        let bCount = 0;
+        Game.UpgradesInStore.forEach(u => { if (u.canBuy() && !u.pool.includes('toggle')) { u.buy(); bCount++; } });
+        Game.ObjectsById.forEach(o => { while (Game.cookies >= o.getPrice()) { o.buy(1); bCount++; } });
+        Game.Notify("Hyper-Buy Complete", `Acquired ${bCount} items.`);
+    };
+
+    document.getElementById('btn-meteor').onclick = function() {
+        if (meteorCooldown) return;
+        meteorCooldown = true;
+        const btn = this;
+        btn.disabled = true;
+
+        const bc = document.getElementById('bigCookie'), rect = bc.getBoundingClientRect();
+        const m = document.createElement('div'); m.className = 'meteor-entity';
+        m.style.left = (rect.left + rect.width/2 - 40) + 'px'; 
+        m.style.top = (rect.top + rect.height/2 - 40) + 'px';
+        m.style.animation = "meteor-fall 0.5s ease-in forwards";
+        document.body.appendChild(m);
+
+        setTimeout(() => {
+            m.remove();
+            Game.Earn(Game.cookies * 5);
+            Game.Notify("IMPACT!", "Bank x5!", [22, 11]);
+        }, 500);
+
+        let timer = 10;
+        const cd = setInterval(() => {
+            btn.innerText = `METEOROID (${timer--}s)`;
+            if (timer < 0) {
+                clearInterval(cd);
+                meteorCooldown = false;
+                btn.disabled = false;
+                btn.innerText = "METEOROID STRIKE";
+            }
+        }, 1000);
+    };
+
+    document.getElementById('btn-bh').onclick = function() {
+        if (bhCooldown) return;
+        bhCooldown = true;
+        const btn = this;
+        btn.disabled = true;
+
+        const overlay = document.createElement('div'); overlay.className = 'bh-overlay';
+        const container = document.createElement('div'); container.className = 'bh-container';
+        
+        const createBH = (anim) => {
+            const ent = document.createElement('div'); ent.className = 'bh-entity';
+            ent.style.animation = anim + " 2s forwards ease-in";
+            const core = document.createElement('div'); core.className = 'bh-core';
+            const ring = document.createElement('div'); ring.className = 'bh-ring';
+            ent.append(core, ring); return ent;
+        };
+
+        const left = createBH('bh-L-approach');
+        const right = createBH('bh-R-approach');
+        container.append(left, right); overlay.append(container); document.body.appendChild(overlay);
+
+        setTimeout(() => {
+            container.style.animation = "bh-final-spin 3s forwards ease-in";
+            setTimeout(() => {
+                overlay.remove();
+                const exp = document.createElement('div'); exp.className = 'star-explosion';
+                document.body.appendChild(exp);
+                Game.Earn(Game.cookies * 150);
+                Game.Notify("COLLISION", "150x Bank!", [22, 12]);
+                setTimeout(() => exp.remove(), 1500);
+            }, 3000);
+        }, 2000);
+
+        let timer = 10;
+        const cd = setInterval(() => {
+            btn.innerText = `BLACK HOLE (${timer--}s)`;
+            if (timer < 0) {
+                clearInterval(cd);
+                bhCooldown = false;
+                btn.disabled = false;
+                btn.innerText = "BLACK HOLE COLLISION";
+            }
+        }, 1000);
+    };
+
+    // --- SPRITE GRID ---
+    const grid = document.getElementById('icon-grid');
+    for(let y = 0; y < 15; y++) {
+        for(let x = 0; x < 15; x++) {
+            const slot = document.createElement('div'); slot.className = 'icon-slot';
+            const sprite = document.createElement('div'); sprite.className = 'icon-sprite';
+            sprite.style.backgroundPosition = `-${x*48}px -${y*48}px`;
+            slot.appendChild(sprite);
+            slot.onclick = () => {
+                document.querySelectorAll('.icon-slot').forEach(el => el.classList.remove('selected'));
+                slot.classList.add('selected'); selectedIcon = [x, y];
+            };
+            grid.appendChild(slot);
+        }
+    }
+
+    // --- UI CONTROLS ---
+    document.getElementById('btn-toggle-ach').onclick = () => {
+        const p = document.getElementById('ach-panel');
+        p.style.display = (p.style.display === 'none') ? 'block' : 'none';
+    };
+    document.getElementById('btn-close').onclick = () => { menu.style.display = 'none'; openBtn.style.display = 'flex'; };
+    openBtn.onclick = () => { menu.style.display = 'flex'; openBtn.style.display = 'none'; };
+    document.getElementById('btn-grant').onclick = () => {
+        const n = document.getElementById('ach-name').value || "Legend";
+        const d = document.getElementById('ach-desc').value || "Custom Achieved!";
+        if(!Game.Achievements[n]) new Game.Achievement(n, d, selectedIcon);
+        Game.Win(n);
+    };
+
+    // DRAG
+    const dragH = document.getElementById('b-drag');
+    dragH.onmousedown = (e) => {
+        let oX = e.clientX - menu.offsetLeft, oY = e.clientY - menu.offsetTop;
+        const move = (ev) => { menu.style.left = (ev.clientX - oX) + 'px'; menu.style.top = (ev.clientY - oY) + 'px'; };
+        document.onmousemove = move; document.onmouseup = () => document.onmousemove = null;
+    };
+
+    // RESIZE
+    menu.querySelectorAll('.resizer').forEach(res => {
+        res.onmousedown = (e) => {
+            const t = res.classList[1], sX = e.clientX, sY = e.clientY, sW = menu.offsetWidth, sH = menu.offsetHeight;
+            const sL = menu.offsetLeft, sT = menu.offsetTop;
+            const onMM = (ev) => {
+                if (t.includes('r')) menu.style.width = (sW + (ev.clientX - sX)) + 'px';
+                if (t.includes('b')) menu.style.height = (sH + (ev.clientY - sY)) + 'px';
+                if (t.includes('l')) { menu.style.width = (sW - (ev.clientX - sX)) + 'px'; menu.style.left = (sL + (ev.clientX - sX)) + 'px'; }
+                if (t.includes('t')) { menu.style.height = (sH - (ev.clientY - sY)) + 'px'; menu.style.top = (sT + (ev.clientY - sY)) + 'px'; }
+            };
+            document.onmousemove = onMM; document.onmouseup = () => document.onmousemove = null;
+        };
+    });
+
+    Game.Notify("Bonkers Fixed", "Warning added to Custom Achievements.");
+})();
